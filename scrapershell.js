@@ -22,8 +22,10 @@ let {
     puppeteersOptions,
     config = {},
     nextPage = null,
-    columns
+    scrape
 } = JSON.parse(stData);
+
+let { parentSelector, columns } = scrape;
 
 let { suppressBrowserLog = true, acceptCookiesSelector = null } = config;
 // let { url, puppettersOptions, columns } = config
@@ -41,8 +43,19 @@ if(qs !== null) {
 // console.log('nextPage: ', nextPage)
 // process.exit(1)
 
+
 (async () => {
     // console.log('url: ', url)
+
+    const isElementVisible = async (page, cssSelector, waitTime) => {
+        let visible = true;
+        await page
+            .waitForSelector(cssSelector, {visible: true, timeout: waitTime})
+            .catch(() => {
+                visible = false;
+            });
+        return visible;
+    };
 
     const browser = await puppeteer.launch(puppeteersOptions)
 
@@ -66,11 +79,18 @@ if(qs !== null) {
                 }
                 // console.log('')
             })
-            .on('pageerror', ({message}) => console.log(red(message)))
+            .on('pageerror', ({message}) => {
+                if(!suppressBrowserLog) {
+                    console.log(red(message))
+                }
+            })
             // .on('response', response =>
             //     console.log(green(`${response.status()} ${response.url()}`)))
-            .on('requestfailed', request =>
-                console.log(magenta(`${request.failure().errorText} ${request.url()}`)))
+            .on('requestfailed', request => {
+                if(!suppressBrowserLog) {
+                    console.log(magenta(`${request.failure().errorText} ${request.url()}`))
+                }
+            })
 
         await page.goto(url)
 
@@ -80,7 +100,7 @@ if(qs !== null) {
             await page.click(acceptCookiesSelector)
         }
 
-        if(nextPage !== null) {
+        if(nextPage !== null && nextPage.active !== false) {
             // console.log('nextPage: ', JSON.stringify(nextPage))
             const {type, selector, waitTime = 100} = nextPage;
             // console.log('nextPage: ', type, selector, waitTime);
@@ -88,17 +108,7 @@ if(qs !== null) {
             if (type === 'click') {
                 // console.log('TYPE IS CLICK');
 
-                const isElementVisible = async (page, cssSelector) => {
-                    let visible = true;
-                    await page
-                        .waitForSelector(cssSelector, {visible: true, timeout: waitTime})
-                        .catch(() => {
-                            visible = false;
-                        });
-                    return visible;
-                };
-
-                let loadMoreVisible = await isElementVisible(page, selector);
+                let loadMoreVisible = await isElementVisible(page, selector, waitTime);
                 // console.log('loadMoreVisible: ', loadMoreVisible)
 
                 while (loadMoreVisible) {
@@ -114,7 +124,7 @@ if(qs !== null) {
             }
         }
 
-        const retrievedData = await page.evaluate((columns, nextPage) => {
+        const retrievedData = await page.evaluate((parentSelector, columns, nextPage) => {
             // This block has the page context, which is almost identical to being in the console
             // except for some of the console's supplementary APIs.
 
@@ -123,45 +133,104 @@ if(qs !== null) {
 
             const keys = Object.keys(columns)
 
-            const tmpData = []
+            const data = []
 
-            for (let i = 0; i < keys.length; i++) {
-                const column = keys[i]
+            const parentElements = Array.from(document.querySelectorAll(parentSelector))
 
-                const {selector, type, attr = null} = columns[column];
+            // console.log('parentElements:', parentElements.length)
 
-                // console.log('columns[ column ]: ', selector, type, attr )
+            for(let childIndex = 0; childIndex < parentElements.length; childIndex++) {
+                const parent = parentElements[ childIndex ];
 
-                tmpData[column] = Array.from(document.querySelectorAll(selector))
-                    .map(el => {
+                // let currentElementIndex = 0;
+
+                const item = {}
+
+                for (let i = 0; i < keys.length; i++) {
+                    const column = keys[i]
+
+                    // console.log('column: ', column)
+
+                    const {
+                        selector,
+                        type,
+                        config = {
+                            attr: null,
+                            type: null,
+
+                        }
+                    } = columns[column];
+
+                    // console.log('columns[ column ]: ', selector, type, attr )
+
+                    const getColValue = (el, type) => {
                         let colValue = '';
 
                         if (type === 'text') {
-                            colValue = el.textContent
+                            colValue = !!el ? el.textContent : ''
                         } else if (type === 'html') {
-                            colValue = el.innerHTML
+                            colValue = !!el ? el.innerHTML : ''
                         } else if (type === 'attr') {
-                            colValue = el.getAttribute(attr)
+                            colValue = !!el ? el.getAttribute(config.attr) : ''
+                        } else if (type === 'expectedValue'){
+                            console.log('el: ', !!el)
+
+                            if(!el) {
+                                return false
+                            }
+
+                            colValue = getColValue(el, !!config.type ? config.type : 'text')
+
+                            console.log('colValue: ', colValue)
+
+                            if(colValue === '') {
+                                return false
+                            } else {
+                                config.caseSensitive = !!config.caseSensitive ? config.caseSensitive : false
+                                colValue = config.caseSensitive === true ? colValue : colValue.toLowerCase()
+
+                                return colValue === (config.caseSensitive ? config.value : config.value.toLowerCase())
+                            }
                         }
 
                         return colValue
-                    })
+                    }
 
-                // console.log('tmpData[column]: ', tmpData[column])
+                    let elements = parent.querySelectorAll(selector)
+                    // console.log('elements: ', elements.length)
+
+                    if(elements.length === 0) {
+                        item[column] = ''
+                    } else if(elements.length === 1) {
+                        item[column] = getColValue(elements[0], type)
+                    } else {
+                        // TODO
+                        item[column] = Array.from(elements/*[ currentElementIndex++ ]*/)
+                            .map(el => getColValue(el, type))
+                    }
+
+
+
+                    // console.log('tmpData[column]: ', tmpData[column])
+                }
+
+                data.push(item)
             }
 
-            let maxLenght = tmpData[keys[0]].length;
+            /*let maxLenght = tmpData[keys[0]].length;
             let maxLenghtIndex = 0;
 
             for (let colIndex = 0; colIndex < keys.length; colIndex++) {
+                console.log(keys[colIndex], tmpData[keys[colIndex]].length)
+
                 if (tmpData[keys[colIndex]].length > maxLenght) {
                     maxLenght = tmpData[keys[colIndex]].length
                     maxLenghtIndex = colIndex
                 }
             }
 
-            // console.log('MAX LENGHT: ', maxLenght)
-            // console.log('MAX LENGHT INDEX: ', maxLenghtIndex)
+            console.log('MAX LENGHT: ', maxLenght)
+            console.log('MAX LENGHT INDEX: ', maxLenghtIndex)
 
             // console.log('PROCESSING DATA: ', tmpData[ keys[0] ].length)
             // console.log('PROCESSING DATA: ', tmpData[ keys[1] ].length)
@@ -169,7 +238,7 @@ if(qs !== null) {
 
             const data = []
 
-            for (let dataIndex = 0; dataIndex < tmpData[keys[maxLenghtIndex]].length; dataIndex++) {
+            for (let dataIndex = 0; dataIndex < tmpData[ keys[maxLenghtIndex] ].length; dataIndex++) {
                 const colData = {}
 
                 for (let colIndex = 0; colIndex < keys.length; colIndex++) {
@@ -178,20 +247,20 @@ if(qs !== null) {
                     // console.log('column: ', column)
                     // console.log('tmpData[column][dataIndex]: ', tmpData[column][dataIndex])
 
-                    colData[column] = tmpData[column][dataIndex]
+                    colData[column] = !!tmpData[column][dataIndex] ? tmpData[column][dataIndex] : ''
                 }
 
                 data.push(colData)
-            }
+            }*/
 
             return {
                 origin,
                 pathname,
                 href,
-                lenght: data.length,
+                length: data.length,
                 data,
             }
-        }, columns, nextPage)
+        }, parentSelector, columns, nextPage)
 
         // console.log(retrievedData)
 

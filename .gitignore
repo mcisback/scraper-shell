@@ -2,6 +2,7 @@
 package-lock.json
 
 # Dirs
+.idea
 node_modules
 input
 output
