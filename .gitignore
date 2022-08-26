@@ -1,5 +1,7 @@
 # Files
 package-lock.json
+cookies.txt
+cookies.json
 
 # Dirs
 .idea
