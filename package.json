@@ -1,0 +1,16 @@
+{
+  "name": "scraper-shell",
+  "version": "1.0.0",
+  "description": "",
+  "main": "scrapershell.js",
+  "scripts": {
+    "start": "node scrapershell.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "colorette": "^2.0.19",
+    "puppeteer": "^16.2.0"
+  }
+}
