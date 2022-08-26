@@ -341,7 +341,7 @@ const logBrowserToFile = (fileName, message) => {
                             item[column] = ''
                         } else if (elements.length === 1) {
                             console.log('elements[0] is null ? ', !!elements[0])
-                            
+
                             item[column] = getColValue(elements[0], columns[column])
                         } else {
                             console.log('PASSA DI QUI')
