@@ -79,7 +79,7 @@ const logBrowserToFile = (fileName, message) => {
     } else {
         console.log(`Creating File ${logFilename}`)*/
 
-    fs.writeFileSync(logFilename, message)
+    fs.appendFileSync(logFilename, message + "\n")
     // }
 }
 
@@ -211,46 +211,72 @@ const logBrowserToFile = (fileName, message) => {
             // This block has the page context, which is almost identical to being in the console
             // except for some of the console's supplementary APIs.
 
-            const getColValue = (el, { type, config }) => {
-                let colValue = '';
+            const transformText = (text, transform) => {
+                console.log('transform text: ', text)
+
+                if(!(!!transform)) {
+                    return text
+                }
+
+                let {type = '', regex = '', value = null} = transform
+
+                if(type === 'replace') {
+                    const regexp = Function('return ' + regex)()
+
+                    return text.replace(regexp, value)
+                } else if(type === 'match') {
+                    const regexp = Function('return ' + regex)()
+
+                    return ['match', !!text.match(regexp), text]
+                }
+            }
+
+            const getColValue = (el, { type, config = {transform: null} }) => {
+                const isEl = !!el
+
+                // console.log('getColValue() type: ', type)
+                console.log('getColValue() config: ', JSON.stringify(config))
+                let {
+                    transform = null
+                } = config
 
                 if (type === 'text') {
-                    colValue = !!el ? el.textContent : ''
+                    return !isEl ? '' : transformText(el.textContent, transform)
                 } else if (type === 'html') {
-                    colValue = !!el ? el.innerHTML : ''
+                    return !isEl ? '' : transformText(el.innerHTML, transform)
                 } else if (type === 'attr') {
-                    colValue = !!el ? el.getAttribute(config.attr) : ''
+                    return !isEl ? '' : transformText(el.getAttribute(config.attr), transform)
                 } else if (type === 'exists') {
-                    console.log('exists ? ', !!el, el)
+                    // console.log('exists ? ', isEl, isEl ? el.textContent : '')
 
-                    return !!el
+                    return isEl
                 } else if (type === 'hasvalue') {
-                    // console.log('el: ', !!el)
-
-                    const isEl = !!el
-
                     if (!isEl) {
                         return false
                     }
 
-                    colValue = getColValue(el, !!config.type ? config.type : 'text')
+                    // console.log('!!config.type ? config.type : \'text\'', !!config.type ? config.type : 'text')
+
+                    let colValue = getColValue(el, {
+                        type: !!config.type ? config.type : 'text',
+                        config: {}
+                    })
 
                     // console.log('colValue: ', colValue)
 
-                    if (colValue === '') {
+                    if (colValue === '' || !colValue) {
                         return false
                     } else {
                         config.caseSensitive = !!config.caseSensitive ? config.caseSensitive : false
                         colValue = config.caseSensitive === true ? colValue : colValue.toLowerCase()
 
-                        console.log('colValue === (config.caseSensitive ? config.value : config.value.toLowerCase()): ', colValue === (config.caseSensitive ? config.value : config.value.toLowerCase()))
+                        // console.log('colValue === (config.caseSensitive ? config.value : config.value.toLowerCase()): ', colValue === (config.caseSensitive ? config.value : config.value.toLowerCase()))
+
                         return (colValue === (config.caseSensitive ? config.value : config.value.toLowerCase()))
                     }
                 } else {
                     throw new Error(`${type} is not supported`)
                 }
-
-                return colValue
             }
 
             // Get the URL host name and path separately
@@ -260,7 +286,7 @@ const logBrowserToFile = (fileName, message) => {
 
             const data = []
 
-            console.log('SCRAPE MODE: ', scrapeMode)
+            // console.log('SCRAPE MODE: ', scrapeMode)
 
             if(scrapeMode === 'listing') {
                 if(parentSelector === null) {
@@ -269,19 +295,15 @@ const logBrowserToFile = (fileName, message) => {
 
                 const parentElement = document.querySelector(parentSelector)
 
-                const item = {}
-
                 const firstArray = Array.from(document.querySelectorAll(parentSelector))
 
                 let maxLength = firstArray.length
                 let maxIndex = 0
 
-                const tmpData = {}
-
                 for (let i = 0; i < keys.length; i++) {
                     const column = keys[i]
 
-                    const elements = Array.from(document.querySelectorAll(
+                    const elements = Array.from(parentElement.querySelectorAll(
                         columns[column].selector
                     ))
 
@@ -292,7 +314,7 @@ const logBrowserToFile = (fileName, message) => {
                 }
 
                 for(let i = 0; i < maxLength; i++) {
-                    const colData = {}
+                    const item = {}
                     for (let j = 0; j < keys.length; j++) {
                         const column = keys[j]
 
@@ -300,56 +322,74 @@ const logBrowserToFile = (fileName, message) => {
                             columns[column].selector
                         )[i]
 
-                        colData[column] = getColValue(el, columns[column])
+                        item[column] = getColValue(el, columns[column])
                     }
 
-                    data.push(colData)
+                    data.push(item)
                 }
 
             } else if(scrapeMode === 'onebyone') {
 
                 const parentElements = Array.from(document.querySelectorAll(parentSelector))
 
-                // console.log('parentElements:', parentElements.length)
+                console.log('parentElements.length:', parentElements.length)
 
                 for (let childIndex = 0; childIndex < parentElements.length; childIndex++) {
                     const parent = parentElements[childIndex];
 
                     const item = {}
+                    let jumpNextLoop = false
 
                     for (let i = 0; i < keys.length; i++) {
                         const column = keys[i]
 
-                        // console.log('column: ', column)
+                        console.log('column: ', column)
 
                         const {
                             selector,
                             type,
                             config = {
-                                attr: null,
-                                type: null,
-
+                                attr: null
                             }
                         } = columns[column];
 
-                        // console.log('columns[ column ]: ', selector, type, attr )
+                        console.log('columns[ column ]: ', selector, type, config.attr )
 
                         let elements = parent.querySelectorAll(selector)
                         // console.log('elements.length: ', elements.length)
 
-                        if (elements.length === 0) {
+                        /*if (elements.length === 0) {
                             item[column] = ''
-                        } else if (elements.length === 1) {
-                            console.log('elements[0] is null ? ', !!elements[0])
+                        } else */
+                        if (elements.length <= 1) {
+                            // console.log('elements[0] is null ? ', elements[0] === null, type)
+                            // console.log('columns[ column ]: ', selector, type, JSON.stringify(config) )
 
-                            item[column] = getColValue(elements[0], columns[column])
+                            item[column] = getColValue(elements[0], { type, config })
                         } else {
-                            console.log('PASSA DI QUI')
+                            // console.log('PASSA DI QUI: ', column)
 
                             item[column] = Array.from(elements)
-                                .map(el => getColValue(el, columns[column]))
+                                .map(el => getColValue(el, { type, config }))
                         }
 
+                        if(Array.isArray(item[column]) && item[column].length === 3) {
+                            if(item[column][0] === 'match') {
+                                if(item[column][1] === false) {
+                                    jumpNextLoop = true
+                                    break
+                                }
+
+                                item[column] = item[column][2]
+                            }
+                        }
+
+                    }
+
+                    if(jumpNextLoop) {
+                        jumpNextLoop = false
+
+                        continue
                     }
 
                     data.push(item)
