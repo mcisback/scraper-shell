@@ -6,6 +6,8 @@ const puppeteer = require('puppeteer');
 // const process = require('process')
 const args = process.argv.slice(2);
 
+const { exec } = require("child_process");
+
 // console.log('process.argv.length: ', process.argv.length)
 if(args.length <= 0) {
     console.log('Missing Arguments: <request_file>')
@@ -236,7 +238,8 @@ const logBrowserToFile = (fileName, message) => {
             nextPage,
             limit,
             filter,
-            transform
+            transform,
+            exec
         }) => {
             // This block has the page context, which is almost identical to being in the console
             // except for some of the console's supplementary APIs.
@@ -245,7 +248,8 @@ const logBrowserToFile = (fileName, message) => {
                 scrapeMode,
                 columns,
                 nextPage,
-                limit
+                limit,
+                exec
             })
 
             const applyFilters = (item, filter) => {
@@ -417,9 +421,19 @@ const logBrowserToFile = (fileName, message) => {
                             item[col] = ('' + item[col]).replace(regexp, to)
                         }
                     } else if(type === 'delete') {
-                        if(item.hasOwnProperty(col)) {
-                            delete item[col]
-                        }
+
+                        delete item[col]
+
+                    } else if(type === 'runjs') {
+                        const {
+                            js
+                        } = config
+
+                        console.log('Running js: ', js)
+
+                        const fn = new Function("return ($item, $col, $value) => " + js)()
+
+                        fn( item, col, item[col] )
                     }
                 }
 
@@ -598,7 +612,8 @@ const logBrowserToFile = (fileName, message) => {
                 length: data.length,
                 data,
             }
-        }, {parentSelector,
+        }, {
+            parentSelector,
             scrapeMode,
             columns,
             nextPage,
