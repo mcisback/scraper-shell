@@ -436,41 +436,18 @@ const logBrowserToFile = (fileName, message) => {
                 }
             }
 
-            const transformText = (text, transform) => {
-                console.log('transform text: ', text)
-
-                if(!(!!transform)) {
-                    return text
-                }
-
-                let {type = '', regex = '', value = null} = transform
-
-                if(type === 'replace') {
-                    const regexp = Function('return ' + regex)()
-
-                    return text.replace(regexp, value)
-                } else if(type === 'match') {
-                    const regexp = Function('return ' + regex)()
-
-                    return ['match', !!text.match(regexp), text]
-                }
-            }
-
-            const getColValue = (el, { type, config = {transform: null} }) => {
+            const getColValue = (el, { type, config = null }) => {
                 const isEl = !!el
 
-                console.log('getColValue() type: ', type)
-                console.log('getColValue() config: ', JSON.stringify(config))
-                let {
-                    transform = null
-                } = config
+                // console.log('getColValue() type: ', type)
+                // console.log('getColValue() config: ', JSON.stringify(config))
 
                 if (type === 'text') {
-                    return !isEl ? '' : transformText(el.textContent, transform)
+                    return !isEl ? '' : el.textContent
                 } else if (type === 'html') {
-                    return !isEl ? '' : transformText(el.innerHTML, transform)
+                    return !isEl ? '' : el.innerHTML
                 } else if (type === 'attr') {
-                    return !isEl ? '' : transformText(el.getAttribute(config.attr), transform)
+                    return !isEl ? '' : el.getAttribute(config.attr)
                 } else if (type === 'exists') {
                     // console.log('exists ? ', isEl, isEl ? el.textContent : '')
 
@@ -512,6 +489,8 @@ const logBrowserToFile = (fileName, message) => {
             const data = []
 
             console.log('SCRAPE MODE: ', scrapeMode)
+
+            // TODO: Fix limit
             console.log('LIMIT IS: ', limit)
 
             if(scrapeMode === 'listing') {
@@ -560,7 +539,11 @@ const logBrowserToFile = (fileName, message) => {
 
             } else if(scrapeMode === 'onebyone') {
 
-                const parentElements = Array.from(document.querySelectorAll(parentSelector))
+                let parentElements = Array.from(document.querySelectorAll(parentSelector))
+
+                if(limit >= 0 && parentElements.length > 1) {
+                    parentElements = parentElements.slice(0, limit)
+                }
 
                 console.log('parentElements.length:', parentElements.length)
 
@@ -568,7 +551,7 @@ const logBrowserToFile = (fileName, message) => {
                     const parent = parentElements[childIndex];
 
                     const item = {}
-                    let jumpNextLoop = false
+                    // let jumpNextLoop = false
 
                     for (let i = 0; i < keys.length; i++) {
                         const column = keys[i]
@@ -588,10 +571,6 @@ const logBrowserToFile = (fileName, message) => {
                         let elements = Array.from(parent.querySelectorAll(selector))
                         console.log('elements.length: ', elements.length)
 
-                        if(limit >= 0 && elements.length > 1) {
-                            elements = elements.slice(0, limit)
-                        }
-
                         /*if (elements.length === 0) {
                             item[column] = ''
                         } else */
@@ -606,24 +585,6 @@ const logBrowserToFile = (fileName, message) => {
                             item[column] = Array.from(elements)
                                 .map(el => getColValue(el, { type, config }))
                         }
-
-                        if(Array.isArray(item[column]) && item[column].length === 3) {
-                            if(item[column][0] === 'match') {
-                                if(item[column][1] === false) {
-                                    jumpNextLoop = true
-                                    break
-                                }
-
-                                item[column] = item[column][2]
-                            }
-                        }
-
-                    }
-
-                    if(jumpNextLoop) {
-                        jumpNextLoop = false
-
-                        continue
                     }
 
                     pushItem(data, item, filter, transform)
