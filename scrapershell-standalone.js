@@ -13,6 +13,24 @@ if(args.length <= 0) {
     process.exit(1)
 }
 
+const removeJsonComments = jsonString => {
+    return jsonString
+        .replace(/^\/\/.+$/gm, '')
+        .replace(/^\n$/gm, '')
+}
+
+const loadJsonParser = requestFile => {
+    const bufferData = fs.readFileSync(requestFile);
+
+    // Load data and remove comments
+    // console.log(removeJsonComments(bufferData.toString()))
+    // process.exit(0)
+
+    return JSON.parse(removeJsonComments(bufferData.toString()))
+
+    // const stData = parse(fs.readFileSync(requestFile).toString())
+}
+
 const requestFile = args[0];
 
 const saveCookie = async (page, cookieFile = 'cookies.json') => {
@@ -28,8 +46,6 @@ const loadCookie = async (page, cookieFile = 'cookies.json') => {
     await page.setCookie(...cookies);
 }
 
-let bufferData = fs.readFileSync(requestFile);
-let stData = bufferData.toString();
 let {
     url,
     qs = null,
@@ -45,16 +61,22 @@ let {
     nextPage = null,
     preScrape = null,
     scrape
-} = JSON.parse(stData);
+} = loadJsonParser(requestFile);
 
-let { parentSelector = null, columns, scrapeMode = 'listing' } = scrape;
+let {
+    scrapeMode = 'listing',
+    parentSelector = null,
+    filter = null,
+    transform = null,
+    columns,
+    limit = -1
+} = scrape;
 
 let {
     suppressBrowserLog = true,
     acceptCookiesSelector = null ,
     browserLogOutputFile = null
 } = config;
-// let { url, puppettersOptions, columns } = config
 
 if(qs !== null) {
     const esc = encodeURIComponent;
@@ -153,7 +175,7 @@ const logBrowserToFile = (fileName, message) => {
         await page.goto(url)
 
         if(!!acceptCookiesSelector) {
-            // console.log('ACCEPTING COOKIES: ', acceptCookiesSelector)
+            console.log('ACCEPTING COOKIES: ', acceptCookiesSelector)
 
             await page.click(acceptCookiesSelector)
         }
@@ -207,9 +229,212 @@ const logBrowserToFile = (fileName, message) => {
             }
         }
 
-        const retrievedData = await page.evaluate((parentSelector, scrapeMode, columns, nextPage) => {
+        const retrievedData = await page.evaluate(({
+            parentSelector,
+            scrapeMode,
+            columns,
+            nextPage,
+            limit,
+            filter,
+            transform
+        }) => {
             // This block has the page context, which is almost identical to being in the console
             // except for some of the console's supplementary APIs.
+            console.log('Started page.evaluate()', {
+                parentSelector,
+                scrapeMode,
+                columns,
+                nextPage,
+                limit
+            })
+
+            const applyFilters = (item, filter) => {
+                const abort = -1
+
+                console.log('Filtering item: ', JSON.stringify(item))
+
+                // TODO: Filter block
+                if(!!filter) {
+                    console.log('Applying filters: ', JSON.stringify(filter))
+
+                    let {
+                        type = 'comparison',
+                        config = null
+                    } = filter
+
+                    if(!config) {
+                        return abort
+                    }
+
+                    let {
+                        column = null,
+                        condition = 'eq',
+                        value = null,
+                        action = 'include',
+                        regex = null
+                    } = config
+
+                    if(!item.hasOwnProperty(column)) {
+                        return abort
+                    }
+
+                    const columnValue = item[column]
+
+                    if(type === 'comparison') {
+                        if(!column || !value) {
+                            console.log('column or value null', column, value)
+
+                            return abort
+                        }
+
+                        // TODO: What if item[column] is array ?
+                        if(Array.isArray( columnValue )) {
+                            console.log('[NOT IMPLEMENTED YET] columnValue is array, skipping filter')
+
+                            return abort
+                        }
+
+                        if(condition === 'eq') {
+                            const cond = columnValue === value
+
+                            return action === 'include' ? cond : !cond
+                        } else if(condition === 'lt') {
+                            const cond = parseFloat(columnValue) < parseFloat(value)
+
+                            return action === 'include' ? cond : !cond
+                        } else if(condition === 'lte') {
+                            const cond = parseFloat(columnValue) <= parseFloat(value)
+
+                            return action === 'include' ? cond : !cond
+                        } else if(condition === 'gt') {
+                            const cond = parseFloat(columnValue) > parseFloat(value)
+
+                            return action === 'include' ? cond : !cond
+                        } else if(condition === 'gte') {
+                            const cond = parseFloat(columnValue) >= parseFloat(value)
+
+                            return action === 'include' ? cond : !cond
+                        }
+                    } else if(type === 'match') {
+                        if(!regex) {
+                            console.log('match regex null, skipping filter')
+
+                            return abort
+                        }
+
+                        const regexp = Function('return ' + regex)()
+                        const cond = !!columnValue.match(regexp)
+
+                        return action === 'include' ? cond : !cond
+                    } else if(type === '!match') {
+                        if(!regex) {
+                            console.log('!match regex null, skipping filter')
+
+                            return abort
+                        }
+
+                        const regexp = Function('return ' + regex)()
+                        const cond = !!columnValue.match(regexp)
+
+                        return action === 'include' ? !cond : cond
+                    }
+                }
+
+                return true
+            }
+
+            const applyTransform = (item, transform) => {
+                if(!item || !transform) {
+                    return item
+                }
+
+                const columns = Object.keys(transform)
+
+                for(let i = 0; i < columns.length; i++) {
+                    const col = columns[i]
+
+                    if(!item.hasOwnProperty(col)) {
+                        return item
+                    }
+
+                    let {
+                        type = null,
+                        config = null
+                    } = transform[col]
+
+                    if(!type) {
+                        return item
+                    }
+
+                    if(type === 'pickItem') {
+                        if(!config) {
+                            return item
+                        }
+
+                        let {
+                            index = 0
+                        } = config
+
+                        if(!Array.isArray(item[col])) {
+                            return item
+                        }
+
+                        item[col] = item[col][index]
+                    } else if(type === 'replace') {
+                        if(!config) {
+                            return item
+                        }
+
+                        let {
+                            regex = null,
+                            to = null
+                        } = config
+
+                        if(!regex || !to){
+                            return item
+                        }
+
+                        // TODO: And what if it is an array ?
+                        if(Array.isArray(item[col])) {
+                            item[col] = item[col].map(el => {
+                                // For normal strings value in json should be:
+                                // "regex": "'value_to_replace'"
+                                // For regex:
+                                // "regex": /regex/gmi
+                                const regexp = Function('return ' + regex)()
+
+                                // ''+item[col] -> item[col] to string
+                                return (''+el).replace(regexp, to)
+                            })
+                        } else {
+                            // For normal strings value in json should be:
+                            // "regex": "'value_to_replace'"
+                            // For regex:
+                            // "regex": /regex/gmi
+                            const regexp = Function('return ' + regex)()
+
+                            // ''+item[col] -> item[col] to string
+                            item[col] = ('' + item[col]).replace(regexp, to)
+                        }
+                    } else if(type === 'delete') {
+                        if(item.hasOwnProperty(col)) {
+                            delete item[col]
+                        }
+                    }
+                }
+
+                return item
+            }
+
+            const pushItem = (data, item, filter, transform) => {
+                console.log('Pushing item')
+
+                const doPushItem = applyFilters(item, filter)
+
+                if(doPushItem === -1 || !!doPushItem) {
+                    return data.push(applyTransform(item, transform))
+                }
+            }
 
             const transformText = (text, transform) => {
                 console.log('transform text: ', text)
@@ -234,7 +459,7 @@ const logBrowserToFile = (fileName, message) => {
             const getColValue = (el, { type, config = {transform: null} }) => {
                 const isEl = !!el
 
-                // console.log('getColValue() type: ', type)
+                console.log('getColValue() type: ', type)
                 console.log('getColValue() config: ', JSON.stringify(config))
                 let {
                     transform = null
@@ -286,7 +511,8 @@ const logBrowserToFile = (fileName, message) => {
 
             const data = []
 
-            // console.log('SCRAPE MODE: ', scrapeMode)
+            console.log('SCRAPE MODE: ', scrapeMode)
+            console.log('LIMIT IS: ', limit)
 
             if(scrapeMode === 'listing') {
                 if(parentSelector === null) {
@@ -303,9 +529,13 @@ const logBrowserToFile = (fileName, message) => {
                 for (let i = 0; i < keys.length; i++) {
                     const column = keys[i]
 
-                    const elements = Array.from(parentElement.querySelectorAll(
+                    let elements = Array.from(parentElement.querySelectorAll(
                         columns[column].selector
                     ))
+
+                    if(limit >= 0 && elements.length > 1) {
+                        elements = elements.slice(0, limit)
+                    }
 
                     if(maxLength < elements.length) {
                         maxLength = elements.length
@@ -325,7 +555,7 @@ const logBrowserToFile = (fileName, message) => {
                         item[column] = getColValue(el, columns[column])
                     }
 
-                    data.push(item)
+                    pushItem(data, item, filter, transform)
                 }
 
             } else if(scrapeMode === 'onebyone') {
@@ -355,8 +585,12 @@ const logBrowserToFile = (fileName, message) => {
 
                         console.log('columns[ column ]: ', selector, type, config.attr )
 
-                        let elements = parent.querySelectorAll(selector)
-                        // console.log('elements.length: ', elements.length)
+                        let elements = Array.from(parent.querySelectorAll(selector))
+                        console.log('elements.length: ', elements.length)
+
+                        if(limit >= 0 && elements.length > 1) {
+                            elements = elements.slice(0, limit)
+                        }
 
                         /*if (elements.length === 0) {
                             item[column] = ''
@@ -392,7 +626,7 @@ const logBrowserToFile = (fileName, message) => {
                         continue
                     }
 
-                    data.push(item)
+                    pushItem(data, item, filter, transform)
                 }
             }
 
@@ -403,7 +637,14 @@ const logBrowserToFile = (fileName, message) => {
                 length: data.length,
                 data,
             }
-        }, parentSelector, scrapeMode, columns, nextPage)
+        }, {parentSelector,
+            scrapeMode,
+            columns,
+            nextPage,
+            limit,
+            filter,
+            transform
+        })
 
         const retrievedJSON = JSON.stringify(retrievedData, null, 4)
 
