@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
-const fsProm = fs.promises;
+const fsProms = fs.promises;
 const puppeteer = require('puppeteer');
 // const process = require('process')
-const args = process.argv.slice(2);
+const args = process.argv.slice(2)
 
-const { exec } = require("child_process");
+const { saveCookie, loadCookie } = './scrapershell/cookies'
 
 // console.log('process.argv.length: ', process.argv.length)
 if(args.length <= 0) {
@@ -35,18 +35,7 @@ const loadJsonParser = requestFile => {
 
 const requestFile = args[0];
 
-const saveCookie = async (page, cookieFile = 'cookies.json') => {
-    const cookies = await page.cookies();
-    const cookieJson = JSON.stringify(cookies, null, 2);
-    await fsProm.writeFile(cookieFile, cookieJson);
-}
 
-//load cookie function
-const loadCookie = async (page, cookieFile = 'cookies.json') => {
-    const cookieJson = await fsProm.readFile(cookieFile);
-    const cookies = JSON.parse(cookieJson);
-    await page.setCookie(...cookies);
-}
 
 let {
     url,
