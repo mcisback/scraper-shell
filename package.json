@@ -2,9 +2,9 @@
   "name": "scraper-shell",
   "version": "1.0.0",
   "description": "",
-  "main": "scrapershell.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node scrapershell.js"
+    "start": "node main.js"
   },
   "keywords": [],
   "author": "",
