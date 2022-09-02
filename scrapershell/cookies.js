@@ -1,3 +1,6 @@
+const fs = require("fs");
+const fsProms = fs.promises;
+
 const saveCookie = async (page, cookieFile = 'cookies.json') => {
     const cookies = await page.cookies();
     const cookieJson = JSON.stringify(cookies, null, 2);

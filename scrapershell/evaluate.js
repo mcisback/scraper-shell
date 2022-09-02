@@ -120,70 +120,47 @@ const evaluateJsInDOM = async (page, {
             return true
         }
 
-        const applyTransform = (item, transform) => {
-            if (!item || !transform) {
+        const applyTransformAtom = (item, transform, col) => {
+            let {
+                type = null,
+                config = null
+            } = transform
+
+            if (!type) {
                 return item
             }
 
-            const columns = Object.keys(transform)
-
-            for (let i = 0; i < columns.length; i++) {
-                const col = columns[i]
-
-                if (!item.hasOwnProperty(col)) {
+            if (type === 'pickItem') {
+                if (!config) {
                     return item
                 }
 
                 let {
-                    type = null,
-                    config = null
-                } = transform[col]
+                    index = 0
+                } = config
 
-                if (!type) {
+                if (!Array.isArray(item[col])) {
                     return item
                 }
 
-                if (type === 'pickItem') {
-                    if (!config) {
-                        return item
-                    }
+                item[col] = item[col][index]
+            } else if (type === 'replace') {
+                if (!config) {
+                    return item
+                }
 
-                    let {
-                        index = 0
-                    } = config
+                let {
+                    regex = null,
+                    to = null
+                } = config
 
-                    if (!Array.isArray(item[col])) {
-                        return item
-                    }
+                if (!regex || !to) {
+                    return item
+                }
 
-                    item[col] = item[col][index]
-                } else if (type === 'replace') {
-                    if (!config) {
-                        return item
-                    }
-
-                    let {
-                        regex = null,
-                        to = null
-                    } = config
-
-                    if (!regex || !to) {
-                        return item
-                    }
-
-                    // TODO: And what if it is an array ?
-                    if (Array.isArray(item[col])) {
-                        item[col] = item[col].map(el => {
-                            // For normal strings value in json should be:
-                            // "regex": "'value_to_replace'"
-                            // For regex:
-                            // "regex": /regex/gmi
-                            const regexp = Function('return ' + regex)()
-
-                            // ''+item[col] -> item[col] to string
-                            return ('' + el).replace(regexp, to)
-                        })
-                    } else {
+                // TODO: And what if it is an array ?
+                if (Array.isArray(item[col])) {
+                    item[col] = item[col].map(el => {
                         // For normal strings value in json should be:
                         // "regex": "'value_to_replace'"
                         // For regex:
@@ -191,22 +168,60 @@ const evaluateJsInDOM = async (page, {
                         const regexp = Function('return ' + regex)()
 
                         // ''+item[col] -> item[col] to string
-                        item[col] = ('' + item[col]).replace(regexp, to)
+                        return ('' + el).replace(regexp, to)
+                    })
+                } else {
+                    // For normal strings value in json should be:
+                    // "regex": "'value_to_replace'"
+                    // For regex:
+                    // "regex": /regex/gmi
+                    const regexp = Function('return ' + regex)()
+
+                    // ''+item[col] -> item[col] to string
+                    item[col] = ('' + item[col]).replace(regexp, to)
+                }
+            } else if (type === 'delete') {
+
+                delete item[col]
+
+            } else if (type === 'runjs') {
+                const {
+                    js
+                } = config
+
+                console.log('Running js: ', js)
+
+                const fn = new Function("return ($item, $col, $value) => " + js)()
+
+                fn(item, col, item[col])
+            }
+
+            return item
+        }
+
+        const applyTransform = (item, transform) => {
+            if (!item || !transform) {
+                return item
+            }
+
+            const columns = Object.keys(transform)
+
+            for(let i = 0; i < columns.length; i++) {
+                const col = columns[i]
+
+                if (!item.hasOwnProperty(col)) {
+                    return item
+                }
+
+                if(Array.isArray(transform[col])) {
+                    console.log('transform[col] is Array: ', JSON.stringify(transform[col]))
+                    console.log('transform[col].length: ', transform[col].length)
+
+                    for(let j = 0; j < transform[col].length; j++) {
+                        item = applyTransformAtom(item, transform[col][j], col)
                     }
-                } else if (type === 'delete') {
-
-                    delete item[col]
-
-                } else if (type === 'runjs') {
-                    const {
-                        js
-                    } = config
-
-                    console.log('Running js: ', js)
-
-                    const fn = new Function("return ($item, $col, $value) => " + js)()
-
-                    fn(item, col, item[col])
+                } else {
+                    item = applyTransformAtom(item, transform[col], col)
                 }
             }
 
@@ -276,8 +291,6 @@ const evaluateJsInDOM = async (page, {
         const data = []
 
         console.log('SCRAPE MODE: ', scrapeMode)
-
-        // TODO: Fix limit
         console.log('LIMIT IS: ', limit)
 
         if (scrapeMode === 'listing') {

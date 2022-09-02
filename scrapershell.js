@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
-const fsProms = fs.promises;
 const puppeteer = require('puppeteer');
 // const process = require('process')
 
