@@ -21,6 +21,8 @@ const evaluateJsInDOM = async (page, {
             scrapeMode,
             columns,
             limit,
+            filter,
+            transform,
         })
 
         const applyFilters = (item, filter) => {
@@ -336,7 +338,6 @@ const evaluateJsInDOM = async (page, {
                 const parent = parentElements[childIndex];
 
                 const item = {}
-                // let jumpNextLoop = false
 
                 for (let i = 0; i < keys.length; i++) {
                     const column = keys[i]
@@ -356,17 +357,10 @@ const evaluateJsInDOM = async (page, {
                     let elements = Array.from(parent.querySelectorAll(selector))
                     console.log('elements.length: ', elements.length)
 
-                    /*if (elements.length === 0) {
-                        item[column] = ''
-                    } else */
-                    if (elements.length <= 1) {
-                        // console.log('elements[0] is null ? ', elements[0] === null, type)
-                        // console.log('columns[ column ]: ', selector, type, JSON.stringify(config) )
 
+                    if (elements.length <= 1) {
                         item[column] = getColValue(elements[0], {type, config})
                     } else {
-                        // console.log('PASSA DI QUI: ', column)
-
                         item[column] = Array.from(elements)
                             .map(el => getColValue(el, {type, config}))
                     }
